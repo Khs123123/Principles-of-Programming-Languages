@@ -1,0 +1,25 @@
+{
+  "name": "bgu-ppl-hw1-2026",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "jest",
+    "coverage": "jest --coverage"
+  },
+  "author": "Yaron Gonen",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.5.0",
+    "@types/ramda": "^0.31.1",
+    "jest": "^30.3.0",
+    "jest-extended": "^7.0.0",
+    "ramda": "^0.32.0",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "glob": "^13.0.6",
+    "inflight": "npm:@isaacs/inflight@1.0.6"
+  }
+}
