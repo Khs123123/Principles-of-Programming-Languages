@@ -1,14 +1,14 @@
 // L3-eval.ts
 import { map } from "ramda";
-import { isCExp, isLetExp } from "./L3-ast";
+import { isCExp, isLetExp, isClassExp, ClassExp } from "./L3-ast"; // <-- add isClassExp, ClassExp
 import { BoolExp, CExp, Exp, IfExp, LitExp, NumExp,
          PrimOp, ProcExp, Program, StrExp, VarDecl } from "./L3-ast";
 import { isAppExp, isBoolExp, isDefineExp, isIfExp, isLitExp, isNumExp,
              isPrimOp, isProcExp, isStrExp, isVarRef } from "./L3-ast";
-import { makeBoolExp, makeLitExp, makeNumExp, makeProcExp, makeStrExp } from "./L3-ast";
+import { makeBoolExp, makeLitExp, makeNumExp, makeProcExp, makeStrExp, makeClassExp } from "./L3-ast";
 import { parseL3Exp } from "./L3-ast";
 import { applyEnv, makeEmptyEnv, makeEnv, Env } from "./L3-env-sub";
-import { isClosure, makeClosure, Closure, Value } from "./L3-value";
+import { isClosure, makeClosure, Closure, Value, isClass, isObject, Class, Object, makeClass, makeObject } from "./L3-value";
 import { first, rest, isEmpty, List, isNonEmptyList } from '../shared/list';
 import { isBoolean, isNumber, isString } from "../shared/type-predicates";
 import { Result, makeOk, makeFailure, bind, mapResult, mapv } from "../shared/result";
@@ -37,6 +37,7 @@ const L3applicativeEval = (exp: CExp, env: Env): Result<Value> =>
                             (rands: Value[]) =>
                                 L3applyProcedure(rator, rands, env))) :
     isLetExp(exp) ? makeFailure('"let" not supported (yet)') :
+    isClassExp(exp) ? evalClass(exp) : // <-- add case for ClassExp
     makeFailure('Never');
 
 export const isTrueValue = (x: Value): boolean =>
@@ -50,21 +51,29 @@ const evalIf = (exp: IfExp, env: Env): Result<Value> =>
 const evalProc = (exp: ProcExp, env: Env): Result<Closure> =>
     makeOk(makeClosure(exp.args, exp.body));
 
+//helper function to evaluate class expressions
+const evalClass = (exp: ClassExp): Result<Class> =>
+    makeOk(makeClass(exp.fields, exp.methods));
+
 const L3applyProcedure = (proc: Value, args: Value[], env: Env): Result<Value> =>
     isPrimOp(proc) ? applyPrimitive(proc, args) :
     isClosure(proc) ? applyClosure(proc, args, env) :
+    isClass(proc) ? makeOk(proc) :
+    isObject(proc) ? makeOk(proc) :
     makeFailure(`Bad procedure ${format(proc)}`);
 
 // Applications are computed by substituting computed
 // values into the body of the closure.
 // To make the types fit - computed values of params must be
 // turned back in Literal Expressions that eval to the computed value.
-const valueToLitExp = (v: Value): NumExp | BoolExp | StrExp | LitExp | PrimOp | ProcExp =>
+const valueToLitExp = (v: Value): NumExp | BoolExp | StrExp | LitExp | PrimOp | ProcExp | ClassExp =>
     isNumber(v) ? makeNumExp(v) :
     isBoolean(v) ? makeBoolExp(v) :
     isString(v) ? makeStrExp(v) :
     isPrimOp(v) ? v :
     isClosure(v) ? makeProcExp(v.params, v.body) :
+    isClass(v) ? makeClassExp(v.fields, v.methods) :
+    isObject(v) ? makeFailure("Cannot convert object to literal") as any :
     makeLitExp(v);
 
 const applyClosure = (proc: Closure, args: Value[], env: Env): Result<Value> => {
@@ -73,6 +82,46 @@ const applyClosure = (proc: Closure, args: Value[], env: Env): Result<Value> => 
     const litArgs : CExp[] = map(valueToLitExp, args);
     return evalSequence(substitute(body, vars, litArgs), env);
     //return evalSequence(substitute(proc.body, vars, litArgs), env);
+}
+
+// ========================================================
+const applyClass = (c: Class, args: Value[]): Result<Object> => {
+    if (args.length !== c.fields.length) {
+        return makeFailure(`Class constructor expected ${c.fields.length} arguments, got ${args.length}`);
+    }
+    return makeOk(makeObject(c, args));
+}
+
+const applyObject = (o: Object, args: Value[], env: Env): Result<Value> => {
+    if (args.length === 0) {
+        return makeFailure(`Object application missing method name`);
+    }
+    const methodName = args[0];
+    if (!isString(methodName) && !(methodName && typeof methodName === 'object' && 'tag' in methodName && methodName.tag === 'SymbolSExp')) {
+        return makeFailure(`Method name must be a symbol, got ${format(methodName)}`);
+    }
+    
+    // Extract the actual string value whether it's a raw string or a SymbolSExp
+    const methodStr = isString(methodName) ? methodName : (methodName as any).val;
+
+    // Find the method in the class bindings
+    const methodBinding = o.class.methods.find(b => b.var.var === methodStr);
+    if (!methodBinding) {
+        return makeFailure(`Unrecognized method: ${methodStr}`);
+    }
+
+    // Substitute the object's field values into the method's body
+    const fieldNames = map((v: VarDecl) => v.var, o.class.fields);
+    const litFieldValues: CExp[] = map(valueToLitExp, o.fieldValues);
+    const substitutedMethod = substitute([methodBinding.val], fieldNames, litFieldValues)[0];
+
+    // Evaluate the method with the *remaining* arguments
+    const remainingArgs = args.slice(1);
+    
+    // The substituted method should be a ProcExp (lambda), so we evaluate it to a Closure, then apply it
+    return bind(L3applicativeEval(substitutedMethod, env), (proc: Value) =>
+        L3applyProcedure(proc, remainingArgs, env)
+    );
 }
 
 // Evaluate a sequence of expressions (in a program)
