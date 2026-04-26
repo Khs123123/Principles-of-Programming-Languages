@@ -19,9 +19,9 @@ export const class2proc = (exp: ClassExp): ProcExp => {
 
     // Helper function to build the nested `if` statements for the methods
     const buildIfChain = (methods: Binding[]): CExp => {
-        // Base case: No methods left, return #f (false) to indicate an error
+        // Base case: The test expects 'error, not #f!
         if (methods.length === 0) {
-            return makeBoolExp(false);
+            return makeLitExp(makeSymbolSExp("error"));
         }
         
         const method = methods[0];
@@ -32,18 +32,19 @@ export const class2proc = (exp: ClassExp): ProcExp => {
             makeLitExp(makeSymbolSExp(method.var.var))
         ]);
 
-        // (if testCondition methodValue recursively_check_rest)
-        return makeIfExp(testCondition, method.val, buildIfChain(methods.slice(1)));
+        // The instructions say "assume methods have no parameters". 
+        // We need to unwrap the (lambda () ...) to just get the expression inside.
+        const methodBody = isProcExp(method.val) ? method.val.body[0] : method.val;
+
+        // (if testCondition methodBody recursively_check_rest)
+        return makeIfExp(testCondition, methodBody, buildIfChain(methods.slice(1)));
     };
 
     // The inner body is a chain of if-statements checking the methods
     const body = buildIfChain(exp.methods);
     
-    // Create the inner lambda: (lambda (msg) ...)
-    const innerProc = makeProcExp([msgVar], [body]);
-    
     // Create the outer lambda: (lambda (fields...) (lambda (msg) ...))
-    return makeProcExp(exp.fields, [innerProc]);
+    return makeProcExp(exp.fields, [makeProcExp([msgVar], [body])]);
 };
 
 /*
