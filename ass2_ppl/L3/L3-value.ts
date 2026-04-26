@@ -109,6 +109,6 @@ export const valueToString = (val: Value): string =>
     isSymbolSExp(val) ? val.val :
     isEmptySExp(val) ? "'()" :
     isCompoundSExp(val) ? compoundSExpToString(val) :
-    isClass(val) ? `<Class>` :
-    isObject(val) ? `<Object>` :
+    isClass(val) ? "Class" : 
+    isObject(val) ? "Object" :
     val;

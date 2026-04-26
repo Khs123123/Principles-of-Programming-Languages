@@ -30,6 +30,7 @@ const L3applicativeEval = (exp: CExp, env: Env): Result<Value> =>
     isLitExp(exp) ? makeOk(exp.val) :
     isIfExp(exp) ? evalIf(exp, env) :
     isProcExp(exp) ? evalProc(exp, env) :
+    isClassExp(exp) ? evalClass(exp) : // <-- add case for ClassExp
     isAppExp(exp) ? bind(L3applicativeEval(exp.rator, env), (rator: Value) =>
                         bind(mapResult(param => 
                             L3applicativeEval(param, env), 
@@ -37,7 +38,6 @@ const L3applicativeEval = (exp: CExp, env: Env): Result<Value> =>
                             (rands: Value[]) =>
                                 L3applyProcedure(rator, rands, env))) :
     isLetExp(exp) ? makeFailure('"let" not supported (yet)') :
-    isClassExp(exp) ? evalClass(exp) : // <-- add case for ClassExp
     makeFailure('Never');
 
 export const isTrueValue = (x: Value): boolean =>
@@ -58,8 +58,8 @@ const evalClass = (exp: ClassExp): Result<Class> =>
 const L3applyProcedure = (proc: Value, args: Value[], env: Env): Result<Value> =>
     isPrimOp(proc) ? applyPrimitive(proc, args) :
     isClosure(proc) ? applyClosure(proc, args, env) :
-    isClass(proc) ? makeOk(proc) :
-    isObject(proc) ? makeOk(proc) :
+    isClass(proc) ? applyClass(proc, args) :   
+    isObject(proc) ? applyObject(proc, args, env) :
     makeFailure(`Bad procedure ${format(proc)}`);
 
 // Applications are computed by substituting computed
