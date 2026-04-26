@@ -216,10 +216,10 @@ export const parseL3Atomic = (token: Token): Result<CExp> =>
 const isPrimitiveOp = (x: string): boolean =>
     ["+", "-", "*", "/", ">", "<", "=", "not", "and", "or",
      "eq?", "string=?", "cons", "car", "cdr", "list", "pair?",
-     "number?", "boolean?", "symbol?", "string?"].includes(x);
+     "number?", "boolean?", "symbol?", "string?"].indexOf(x) !== -1;
 
 const isSpecialForm = (x: string): boolean =>
-    ["if", "lambda", "let", "quote", "class"].includes(x);
+    ["if", "lambda", "let", "quote", "class"].indexOf(x) !== -1;
 
 const parseAppExp = (op: Sexp, params: Sexp[]): Result<AppExp> =>
     bind(parseL3CExp(op), (rator: CExp) => 
@@ -248,7 +248,7 @@ const parseLetExp = (bindings: Sexp, body: Sexp[]): Result<LetExp> => {
     // Given (letrec ( (var <val>) ...) <cexp> ...)
     // Return makeLetExp( [makeBinding(var, parse(<val>)) ...], [ parse(<cexp>) ...] )
     // After isGoodBindings, bindings has type [string, Sexp][]
-    const vars = map(b => b[0], bindings);
+    const vars = map((b: any[]) => b[0], bindings);
     const valsResult = mapResult(parseL3CExp, map(second, bindings));
     const bindingsResult = mapv(valsResult, (vals: CExp[]) => zipWith(makeBinding, vars, vals));
     return bind(bindingsResult, (bindings: Binding[]) => 
@@ -280,7 +280,7 @@ const parseClassExp = (params: Sexp[]): Result<ClassExp> => {
     if (!isGoodBindings(bindings)) {
         return makeFailure(`Malformed methods in class`);
     }
-    const methodNames = map(b => b[0], bindings);
+    const methodNames = map((b: any[]) => b[0], bindings);
     const methodValsResult = mapResult(parseL3CExp, map(second, bindings));
     
     // Bind everything together into a ClassExp
