@@ -73,7 +73,7 @@ const valueToLitExp = (v: Value): NumExp | BoolExp | StrExp | LitExp | PrimOp | 
     isPrimOp(v) ? v :
     isClosure(v) ? makeProcExp(v.params, v.body) :
     isClass(v) ? makeClassExp(v.fields, v.methods) :
-    isObject(v) ? makeFailure("Cannot convert object to literal") as any :
+    isObject(v) ? makeLitExp(v) :
     makeLitExp(v);
 
 const applyClosure = (proc: Closure, args: Value[], env: Env): Result<Value> => {
