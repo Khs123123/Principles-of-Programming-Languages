@@ -3,16 +3,17 @@
 
 import { map } from "ramda";
 import { isBoolExp, isCExp, isLitExp, isNumExp, isPrimOp, isStrExp, isVarRef,
-         isAppExp, isDefineExp, isIfExp, isLetExp, isProcExp,
-         Binding, VarDecl, CExp, Exp, IfExp, LetExp, ProcExp, Program,
+         isAppExp, isDefineExp, isIfExp, isLetExp, isProcExp, isClassExp, // <--- add isClassExp
+         Binding, VarDecl, CExp, Exp, IfExp, LetExp, ProcExp, Program, ClassExp, // <--- add ClassExp
          parseL3Exp,  DefineExp} from "./L3-ast";
 import { applyEnv, makeEmptyEnv, makeExtEnv, Env } from "./L3-env-env";
-import { isClosure, makeClosureEnv, Closure, Value } from "./L3-value";
+import { isClosure, makeClosureEnv, Closure, Value, isClass, isObject, Class, Object, makeClassEnv, makeObject, isSymbolSExp } from "./L3-value";
 import { applyPrimitive } from "./evalPrimitive";
 import { allT, first, rest, isEmpty, isNonEmptyList } from "../shared/list";
 import { Result, makeOk, makeFailure, bind, mapResult } from "../shared/result";
 import { parse as p } from "../shared/parser";
 import { format } from "../shared/format";
+import { isString } from "../shared/type-predicates";
 
 // ========================================================
 // Eval functions
@@ -26,6 +27,7 @@ const applicativeEval = (exp: CExp, env: Env): Result<Value> =>
     isLitExp(exp) ? makeOk(exp.val) :
     isIfExp(exp) ? evalIf(exp, env) :
     isProcExp(exp) ? evalProc(exp, env) :
+    isClassExp(exp) ? evalClass(exp, env) : // <-- add case for ClassExp
     isLetExp(exp) ? evalLet(exp, env) :
     isAppExp(exp) ? bind(applicativeEval(exp.rator, env),
                       (proc: Value) =>
@@ -46,16 +48,62 @@ const evalIf = (exp: IfExp, env: Env): Result<Value> =>
 const evalProc = (exp: ProcExp, env: Env): Result<Closure> =>
     makeOk(makeClosureEnv(exp.args, exp.body, env));
 
+////////////////////////////////////////////////////
+const evalClass = (exp: ClassExp, env: Env): Result<Class> =>
+    makeOk(makeClassEnv(exp.fields, exp.methods, env));
+
+
 // KEY: This procedure does NOT have an env parameter.
 //      Instead we use the env of the closure.
 const applyProcedure = (proc: Value, args: Value[]): Result<Value> =>
     isPrimOp(proc) ? applyPrimitive(proc, args) :
     isClosure(proc) ? applyClosure(proc, args) :
+    isClass(proc) ? applyClass(proc, args) :      
+    isObject(proc) ? applyObject(proc, args) :  
     makeFailure(`Bad procedure ${format(proc)}`);
 
 const applyClosure = (proc: Closure, args: Value[]): Result<Value> => {
     const vars = map((v: VarDecl) => v.var, proc.params);
     return evalSequence(proc.body, makeExtEnv(vars, args, proc.env));
+}
+
+///////////////////////////////////////////
+const applyClass = (c: Class, args: Value[]): Result<Object> => {
+    if (args.length !== c.fields.length) {
+        return makeFailure(`Class constructor expected ${c.fields.length} arguments, got ${args.length}`);
+    }
+    return makeOk(makeObject(c, args));
+}
+
+const applyObject = (o: Object, args: Value[]): Result<Value> => {
+    if (args.length === 0) {
+        return makeFailure(`Object application missing method name`);
+    }
+    const method = args[0];
+    const methodName = isString(method) ? method :
+                       isSymbolSExp(method) ? method.val : undefined;
+                       
+    if (methodName === undefined) {
+        return makeFailure(`Method name must be a symbol or string`);
+    }
+
+    const methodBinding = o.class.methods.find(b => b.var.var === methodName);
+    if (!methodBinding) {
+        return makeFailure(`Unrecognized method: ${methodName}`);
+    }
+
+    // ENVIRONMENT MODEL MAGIC:
+    // Create a new environment where the variables are the class fields,
+    // and the values are the object's field values.
+    // The parent environment MUST be the class's defining environment!
+    const fieldNames = map((v: VarDecl) => v.var, o.class.fields);
+    const extEnv = makeExtEnv(fieldNames, o.fieldValues, o.class.env);
+
+    // Evaluate the method in this new environment (which turns it into a Closure),
+    // and then apply it to the rest of the arguments.
+    return bind(applicativeEval(methodBinding.val, extEnv), (proc: Value) =>
+        applyProcedure(proc, args.slice(1)) // <--- changed to args.slice(1)
+    );
 }
 
 // Evaluate a sequence of expressions (in a program)
