@@ -36,8 +36,8 @@ export const l2ToPython = (exp: Exp | Program): Result<string> => {
     }
     // Primitive operations evaluated directly (like the `boolean?` example in the PDF)
     if (isPrimOp(exp)) {
-        if (exp.op === "boolean?") return makeOk("(lambda x: (type(x) == bool))");
-        if (exp.op === "number?") return makeOk("(lambda x: (type(x) == int or type(x) == float))");
+        if (exp.op === "boolean?") return makeOk("(lambda x : (type(x) == bool))");
+        if (exp.op === "number?") return makeOk("(lambda x : (type(x) == int or type(x) == float))");
         return makeOk(exp.op);
     }
     // If expression: (then if test else alt)
@@ -47,13 +47,13 @@ export const l2ToPython = (exp: Exp | Program): Result<string> => {
                bind(l2ToPython(exp.alt), altExp =>
                makeOk(`(${thenExp} if ${testExp} else ${altExp})`))));
     }
-    // Procedure (lambda): (lambda args: body)
+    // Procedure (lambda): (lambda args : body) - NO SPACE AFTER COMMA, SPACE BEFORE COLON
     if (isProcExp(exp)) {
-        const args = exp.args.map(a => a.var).join(", ");
+        const args = exp.args.map(a => a.var).join(","); // <-- Removed space here
         // The instructions say we can assume the body has only one expression
         const bodyResult = l2ToPython(exp.body[0]); 
         return bind(bodyResult, body => 
-            makeOk(args === "" ? `(lambda: ${body})` : `(lambda ${args}: ${body})`)
+            makeOk(args === "" ? `(lambda : ${body})` : `(lambda ${args} : ${body})`) // <-- Added space before colon
         );
     }
     // Application: rator(rands) OR binary operations (a + b)
@@ -67,21 +67,20 @@ export const l2ToPython = (exp: Exp | Program): Result<string> => {
                 return bind(l2ToPython(exp.rands[0]), rand => makeOk(`(not ${rand})`));
             }
             
-            // Binary operators -> (rand1 op rand2)
+            // Binary operators -> (rand1 op rand2 op rand3...)
             if (["+", "-", "*", "/", "<", ">", "=", "eq?", "and", "or"].indexOf(op) !== -1) {
-                return bind(l2ToPython(exp.rands[0]), r1 =>
-                       bind(l2ToPython(exp.rands[1]), r2 => {
-                           // Convert Scheme equality to Python equality
-                           const pyOp = (op === "=" || op === "eq?") ? "==" : op;
-                           return makeOk(`(${r1} ${pyOp} ${r2})`);
-                       }));
+                // Map ALL operands and join them with the operator
+                return bind(mapResult(l2ToPython, exp.rands), rands => {
+                    const pyOp = (op === "=" || op === "eq?") ? "==" : op;
+                    return makeOk(`(${rands.join(` ${pyOp} `)})`); // <-- Joins any number of arguments
+                });
             }
         }
         
-        // General Application (e.g., function calls, or when boolean? is evaluated)
+        // General Application (e.g., function calls) - NO SPACE AFTER COMMA
         return bind(l2ToPython(exp.rator), rator =>
                bind(mapResult(l2ToPython, exp.rands), rands =>
-               makeOk(`${rator}(${rands.join(", ")})`)));
+               makeOk(`${rator}(${rands.join(",")})`))); // <-- Removed space here
     }
     
     return makeFailure(`Unknown expression type`);
