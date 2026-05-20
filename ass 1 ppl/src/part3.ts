@@ -1,6 +1,6 @@
 import { Result, makeFailure, makeOk, bind, either } from "./lib/result";
 
-/* Library code */
+/* Library code*/
 const findOrThrow = <T>(pred: (x: T) => boolean, a: T[]): T => {
     for (let i = 0; i < a.length; i++) {
         if (pred(a[i])) return a[i];
