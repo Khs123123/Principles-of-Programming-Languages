@@ -78,9 +78,11 @@ export const expToPool = (exp: A.Exp): Pool => {
         A.isAtomicExp(e) ? extendPool(e, pool) :
         A.isProcExp(e) ? extendPool(e, reducePool(findVars, e.body, reducePoolVarDecls(extendPoolVarDecl, e.args, pool))) :
         A.isLitExp(e) && V.isEmptySExp(e.val) ?
-            pool : // HW3 3.3.a - fix this branch
+            // '() gets its own pool entry
+            extendPool(e, pool) :
         A.isLitExp(e) && V.isCompoundSExp(e.val) ?
-            pool : // HW3 3.3.a - fix this branch
+            // A cons cell: add entry for the cell, then recursively process head and tail
+            extendPool(e, reducePool(findVars, [A.makeLitExp(e.val.val1), A.makeLitExp(e.val.val2)], pool)) :
         A.isCompoundExp(e) ? extendPool(e, reducePool(findVars, A.expComponents(e), pool)) :
         makeEmptyPool();
     return findVars(exp, makeEmptyPool());
@@ -136,18 +138,36 @@ export const makeEquationsFromExp = (exp: A.Exp, pool: Pool): Opt.Optional<Equat
     // traversed by the overall loop of pool->equations
     A.isProcExp(exp) ? Opt.bind(inPool(pool, exp), (left: T.TExp) =>
                             Opt.mapv(Opt.bind(safeLast(exp.body), (last: A.CExp) => inPool(pool, last)), (ret: T.TExp) =>
-                                [makeEquation(left, T.makeProcTExp(R.map((vd) => vd. texp, exp.args), ret))])) :
+                                [makeEquation(left, T.makeProcTExp(R.map((vd) => vd.texp, exp.args), ret))])) :
     A.isLitExp(exp) ?
         (V.isEmptySExp(exp.val) ?
-            Opt.makeNone() : // HW3 3.3.b - fix this branch
+            // '() has type (list T) for a fresh type variable T
+            Opt.mapv(inPool(pool, exp), (left: T.TExp) =>
+                [makeEquation(left, T.makeListTExp(T.makeFreshTVar()))]) :
         V.isCompoundSExp(exp.val) ?
-            Opt.makeNone() : // HW3 3.3.b - fix this branch
-        isNumber(exp.val) ? Opt.mapv(inPool(pool, exp) , (left: T.TExp) =>
-            [ makeEquation(left, T.makeNumTExp()) ]) :
-        isBoolean(exp.val) ? Opt.mapv(inPool(pool, exp) , (left: T.TExp) =>
-            [ makeEquation(left, T.makeBoolTExp()) ]) :
-        isString(exp.val) ? Opt.mapv(inPool(pool, exp) , (left: T.TExp) =>
-            [ makeEquation(left, T.makeStrTExp()) ]) :
+            // A cons cell '(head . tail):
+            //   type of the cell  = (list T)  for a fresh T
+            //   type of the head  = T
+            //   type of the tail  = (list T)   -- ensures homogeneity
+            (() => {
+                const compound = exp.val as V.CompoundSExp;
+                return Opt.bind(inPool(pool, exp), (listTE: T.TExp) =>
+                    Opt.bind(inPool(pool, A.makeLitExp(compound.val1)), (headTE: T.TExp) =>
+                        Opt.mapv(inPool(pool, A.makeLitExp(compound.val2)), (tailTE: T.TExp) => {
+                            const itemT = T.makeFreshTVar();
+                            return [
+                                makeEquation(listTE, T.makeListTExp(itemT)),
+                                makeEquation(headTE, itemT),
+                                makeEquation(tailTE, T.makeListTExp(itemT))
+                            ];
+                        })));
+            })() :
+        isNumber(exp.val) ? Opt.mapv(inPool(pool, exp), (left: T.TExp) =>
+            [makeEquation(left, T.makeNumTExp())]) :
+        isBoolean(exp.val) ? Opt.mapv(inPool(pool, exp), (left: T.TExp) =>
+            [makeEquation(left, T.makeBoolTExp())]) :
+        isString(exp.val) ? Opt.mapv(inPool(pool, exp), (left: T.TExp) =>
+            [makeEquation(left, T.makeStrTExp())]) :
         Opt.makeNone()
     ) :
     // The type of a number is Number
@@ -244,7 +264,8 @@ const solve = (equations: Equation[], sub: S.Sub): Res.Result<S.Sub> => {
 const canUnify = (eq: Equation): boolean =>
     T.isProcTExp(eq.left) && T.isProcTExp(eq.right) ?
         (eq.left.paramTEs.length === eq.right.paramTEs.length) :
-    // HW3 3.3.c - add missing branch
+    // Two list types can always be unified (their item types will be unified recursively)
+    T.isListTExp(eq.left) && T.isListTExp(eq.right) ? true :
     false;
 
 // Signature: splitEquation(equation)
@@ -262,5 +283,7 @@ const splitEquation = (eq: Equation): Equation[] =>
         R.zipWith(makeEquation,
                   cons(eq.left.returnTE, eq.left.paramTEs),
                   cons(eq.right.returnTE, eq.right.paramTEs)) :
-    // HW3 3.3.d - add missing branch
+    // For list types: unify the item types
+    (T.isListTExp(eq.left) && T.isListTExp(eq.right)) ?
+        [makeEquation(eq.left.itemTE, eq.right.itemTE)] :
     [];
